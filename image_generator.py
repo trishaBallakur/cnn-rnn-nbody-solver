@@ -160,16 +160,18 @@ def write_images_to_file(images, filename):
 
 
 
-def run_simulation(show_plot=False, save_data=(False, ""), fidelity=512):
+def run_simulation(args, show_plot=False, save_data=(False, "")):
     """ N-body simulation """
     file_path = save_data[1]
     save_data = save_data[0]
 
+    fidelity = args.fidelity
+
     # Simulation parameters
-    N = 3  # Number of particles
-    t = 0  # current time of the simulation
-    tEnd = 1.0  # time at which simulation ends
-    dt = 0.01  # timestep
+    N = args.num_objects  # Number of particles
+    t = args.start_time  # current time of the simulation
+    tEnd = args.stop_time  # time at which simulation ends
+    dt = args.time_step_size  # timestep
     softening = 0.1  # softening length
     G = 1.0  # Newton's Gravitational Constant
     plotRealTime = True  # switch on for plotting as the simulation goes along
