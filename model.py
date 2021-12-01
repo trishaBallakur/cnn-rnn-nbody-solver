@@ -1,7 +1,6 @@
-# from operator import pos
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, ReLU, InputLayer, Flatten, BatchNormalization, Reshape
+from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, InputLayer, Flatten, BatchNormalization, Reshape
 from tensorflow.keras import Sequential
 from image_generator import run_simulation, pos_to_numpy
 import matplotlib.pyplot as plt
@@ -9,18 +8,16 @@ import os
 import argparse
 
 class CNN(tf.keras.Model):
-    def __init__(self, args, num_images):
+    def __init__(self, args):
         super(CNN, self).__init__()
         self.input_size = args.fidelity * args.fidelity
         self.batch_size = args.batch_size
-        self.num_images = num_images
         self.loss_list = []
+        self.num_time_steps = int((args.stop_time - args.start_time) / args.time_step_size)
         
         self.args = args
 
-        # self.embedding_matrix = tf.Variable(tf.random.normal([self.num_images, self.embedding_size], stddev=0.1))
-        # self.input = InputLayer(input_shape=(None, 526, 526, 100), batch_size=self.batch_size)
-        self.conv_layer1 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu', input_shape=(args.fidelity,args.fidelity,100), name='input_layer')
+        self.conv_layer1 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu', input_shape=(args.fidelity,args.fidelity,self.num_time_steps), name='input_layer')
         self.conv_layer2 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer3 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer4 = Conv2D(64, kernel_size=3, strides=(1,1), padding='same', activation='relu')
@@ -28,12 +25,7 @@ class CNN(tf.keras.Model):
         self.conv_layer6 = Conv2D(8, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer7 = Conv2D(4, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer8 = Conv2D(1, kernel_size=3, strides=(1,1), padding='same', activation='relu')
-        self.flatten_layer1 = Flatten()
-        # self.dense_1 = Dense(self.input_size)
-        # self.dense_2 = Dense(self.input_size)
-        # self.out_image_flat = Dense(self.input_size, activation='softmax')
-        # self.reshape = Reshape((self.args.fidelity, self.args.fidelity))
-        
+        self.flatten_layer1 = Flatten()      
 
         self.net = Sequential([
             self.conv_layer1,
@@ -45,10 +37,6 @@ class CNN(tf.keras.Model):
             self.conv_layer7,
             self.conv_layer8,
             self.flatten_layer1
-            # self.dense_1,
-            # self.dense_2,
-            # self.out_image_flat
-            # self.reshape
         ])
 
     
@@ -64,18 +52,7 @@ class CNN(tf.keras.Model):
         cosine_loss = tf.keras.losses.cosine_similarity(labels, predictions, axis=1)
         cosine_loss = tf.reduce_sum(cosine_loss)
 
-        # predictions_indices = np.where(predictions > 0, np.ones(predictions.shape), np.zeros(predictions.shape))
-        # image_nums = np.expand_dims(predictions_indices[0], axis=1)
-        # indices = np.expand_dims(predictions_indices[1], axis=1)
-        # predictions_indices = np.hstack((image_nums, indices))
         
-        # labels_indices = np.where(labels > 0, np.ones(labels.shape), np.zeros(labels.shape))
-        # image_nums = np.expand_dims(labels_indices[0], axis=1)
-        # indices = np.expand_dims(labels_indices[1], axis=1)
-        # labels_indices = np.hstack((image_nums, indices))
-
-        # loss = tf.keras.losses.cosine_similarity(labels_indices, predictions_indices)
-        # loss = sum(loss)
 
         return cosine_loss
 
@@ -106,8 +83,6 @@ def load_data(folder, args):
         num_files += 1
         position_sequence_file = open(folder + "/" + entry, 'r')
         images = np.asarray([pos_to_numpy([[float(value) for value in obj.split()] for obj in line.split(",")], fidelity) for line in position_sequence_file])
-        #image_dim = int(fidelity ** 0.5)
-        #images = np.reshape(images, (images.shape[0], image_dim, image_dim)).tolist()
         data.append(images)
         print("Loaded data from file: " + str(num_files) + " / " + str(total_num_files))
     
@@ -122,7 +97,7 @@ def save_model_weights(model, args):
         Save trained model weights to model_ckpts/
 
         Inputs:
-        - model: Trained VAE model.
+        - model: Trained CNN model.
         - args: All arguments.
         """
         model_flag = "CNN"
@@ -142,8 +117,7 @@ def load_weights(model):
     Returns:
     - model: Trained model.
     """
-    inputs = tf.zeros([1,model.args.fidelity,model.args.fidelity,100])  # Random data sample
-    labels = tf.constant([[1,model.args.fidelity,model.args.fidelity,1]])
+    inputs = tf.zeros([1,model.args.fidelity,model.args.fidelity,model.num_time_steps])  # Random data sample
     
     weights_path = os.path.join("model_ckpts", "CNN", "CNN")
     _ = model(inputs)
@@ -151,27 +125,19 @@ def load_weights(model):
     return model
 
 def train(model, training_data):
-    # NUM_SIMULATIONS = 100
-    # time_sequences_of_images = []
-    # for sim in range(NUM_SIMULATIONS):
-    #     images = run_simulation(False)
-    #     images = np.expand_dims(images, axis=0)
-    #     images = np.transpose(images, (0, 2, 3, 1))
-    #     time_sequences_of_images.append(images)
-
     # training data shape is [num_image_sequences, image_width, image_height, num_time_steps]
     
     # want labels to be the image at the final time step for all time sequences
 
     
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)   
+    optimizer = tf.keras.optimizers.Adam(learning_rate=model.args.learning_rate)   
     for batch_start in range(0, training_data.shape[0], model.batch_size):
         images = training_data[batch_start:batch_start + model.batch_size, :, :, :-1]
         labels = training_data[batch_start:batch_start + model.batch_size, :, :, -1:]
         
         labels = np.reshape(labels, (labels.shape[0], -1))
 
-        labels = tf.where(labels == 0, np.ones(labels.shape) * 0.01, labels)
+        # labels = tf.where(labels == 0, np.ones(labels.shape) * 0.01, labels)
 
         images = tf.cast(images, tf.double)
         labels = tf.cast(labels, tf.double)
@@ -202,12 +168,12 @@ def visualize_intermediate_output(model, x_test, layer_name):
         axes[int(i/8),i%8].imshow(intermediate_output[0,:,:,i])
     plt.show()
 
-def show_animation(data):
+def show_animation(data, simulation_num):
     fig = plt.figure(figsize=(4, 5), dpi=80)
     grid = plt.GridSpec(3, 1, wspace=0.0, hspace=0.3)
     ax1 = plt.subplot(grid[0:2, 0])
     for i in range(data.shape[-1]):
-        image = data[4,:,:,i]
+        image = data[simulation_num,:,:,i]
         plt.sca(ax1)
         plt.cla()
         plt.imshow(image)#, cmap='Greys')
@@ -219,30 +185,45 @@ def show_animation(data):
 
 def test(model, args):
     testing_data = load_data("testing_data", args)
+    # inputs are images at all timesteps except last
     x_test = testing_data[:,:,:,:-1]
+    # labels are image at last timestep
     y_test = testing_data[:,:,:,-1:]
 
+    predictions = None
 
-    for n in range(50):
-        predictions = model.call(x_test)
+    """
+    Uncomment the following section to see animation
+    """
+    # for n in range(50):
+    #     predictions = model.call(x_test)
 
-        preds = np.reshape(predictions, (predictions.shape[0], args.fidelity, args.fidelity, 1))
+    #     preds = np.reshape(predictions, (predictions.shape[0], args.fidelity, args.fidelity, 1))
         
-        x_test = tf.concat((x_test[:,:,:,1:], preds), axis=3)
+    #     x_test = tf.concat((x_test[:,:,:,1:], preds), axis=3)
 
-    show_animation(x_test)
-
+    # # parameters are data, which simulation in the data you want to animate
+    # # could also add a breakpoint here and type in the debug console
+    # show_animation(x_test, 0)
+    
+    """
+    Uncomment the following section to see outputs of specific layers
+    """
     # visualize_intermediate_output(model, x_test, 'conv2d_7')
     
-    
-    # for i in range(len(x_test)):
-    #     f, (ax1, ax2) = plt.subplots(1,2)
-    #     ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
-    #     ax2.imshow(y_test[i,:,:,0])
-    #     ax1.set_title("Prediction")
-    #     ax2.set_title("Actual")
+    """
+    Uncomment the following section to see predictions vs. labels for all files 
+    in ./testing data
+    """
+    predictions = model.call(x_test)
+    for i in range(len(x_test)):
+        f, (ax1, ax2) = plt.subplots(1,2)
+        ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
+        ax2.imshow(y_test[i,:,:,0])
+        ax1.set_title("Prediction")
+        ax2.set_title("Actual")
 
-    #     plt.show()
+        plt.show()
 
     return predictions, y_test
 
@@ -250,35 +231,38 @@ def test(model, args):
 def parseArguments():
     parser = argparse.ArgumentParser()
 
+    # want to keep stages separate so we can save progress
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--generate_data", type=int, default=100)
-    group.add_argument("--load_data", action="store_true")
-    group.add_argument("--load_weights", action="store_true")
 
+    # if it should generate data to save in ./training_data folder and how many simulations
+    group.add_argument("--generate_data", type=int, default=100)
+    
+    # if it should train on the data in ./training_data
+    group.add_argument("--load_data", action="store_true")
     parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--num_epochs", type=int, default=5) # implement
+    parser.add_argument("--num_epochs", type=int, default=5)
+    parser.add_argument("--learning_rate", type=float, default=0.001) 
+
+    # if it should load the saved weights and test with files in ./testing_data
+    group.add_argument("--load_weights", action="store_true")
     
-    
+    # other arguments
     parser.add_argument("--num_objects", type=int, default=3)
     parser.add_argument("--start_time", type=int, default=0)
     parser.add_argument("--stop_time", type=float, default=1.0)
     parser.add_argument("--time_step_size", type=float, default=0.01)
     parser.add_argument("--fidelity", type=int, default=128)
     
-    
-
-    # parser.add_argument("--time_steps", type=int, default=99)
-    parser.add_argument("--input_size", type=int, default=128*128)
-    
     args = parser.parse_args()
     return args
 
 def main(args):
 
+    # if program called with --load_data flag
     if args.load_data:
         training_data = load_data("training_data", args)
 
-        model = CNN(args, 0)
+        model = CNN(args)
         for epoch in range(args.num_epochs):
             print("Training epoch", epoch)
             
@@ -287,15 +271,17 @@ def main(args):
         save_model_weights(model, args)
         print(model.loss_list)
     
+    # if program called with --load_weights flag
     elif args.load_weights:
         # inputs is [batch_size, image_width, image_height, num_time_steps]
-        inputs = tf.zeros([1,args.fidelity,args.fidelity,100])  # Random data sample
+        inputs = tf.zeros([1, args.fidelity, args.fidelity, int((args.stop_time - args.start_time) / args.time_step_size)])  # Random data sample
     
-        model = CNN(args, 0)
+        model = CNN(args)
         model = load_weights(model)
         out = test(model, args)
         return out
 
+    # if program called with --generate_data [num] argument
     elif args.generate_data != None:
         generate_data(args)
         return 0
