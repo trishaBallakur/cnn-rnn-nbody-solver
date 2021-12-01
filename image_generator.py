@@ -50,7 +50,8 @@ def pos_to_numpy(positions, fidelity, screen=None):
     else:
         half_size = np.size(screen, axis=0)
 
-    image = np.zeros((fidelity + 2 * half_size, fidelity + 2 * half_size))
+    # image = np.zeros((fidelity + 2 * half_size, fidelity + 2 * half_size))
+    image = np.zeros((fidelity, fidelity))
 
     for p in range(len(positions)):
         pos = positions[p]
@@ -74,10 +75,6 @@ def pos_to_numpy(positions, fidelity, screen=None):
         max_image_idx = image_dim - 1
         screen_dim = screen.shape[0]
 
-        # if any part of the object is not in view
-        #if min_x_idx < 0 or max_x_idx > max_image_idx or min_y_idx < 0 or max_y_idx > max_image_idx:
-
-            # if some of the object is in view
 
         # if only right edge is in view
         if max_x_idx >= 0 and min_x_idx < 0:
@@ -281,7 +278,6 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
                 ax2.set_aspect(0.007)
 
                 plt.pause(0.001)
-
     
 
     if show_plot:
@@ -306,7 +302,8 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
 
 
 def main():
-    run_simulation(False)
+    pos_to_numpy(None, 512)
+    # run_simulation(False)
     # run_simulation(True)
 
 

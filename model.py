@@ -1,27 +1,26 @@
 # from operator import pos
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, ReLU, InputLayer
+from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, ReLU, InputLayer, Flatten, BatchNormalization, Reshape
 from tensorflow.keras import Sequential
 from image_generator import run_simulation, pos_to_numpy
 import matplotlib.pyplot as plt
 import os
 import argparse
 
-
-
 class CNN(tf.keras.Model):
-    def __init__(self, args, num_images, input_size=128*128):
+    def __init__(self, args, num_images):
         super(CNN, self).__init__()
+        self.input_size = args.fidelity * args.fidelity
         self.batch_size = args.batch_size
-        self.input_size = input_size
         self.num_images = num_images
         self.loss_list = []
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        
+        self.args = args
 
         # self.embedding_matrix = tf.Variable(tf.random.normal([self.num_images, self.embedding_size], stddev=0.1))
         # self.input = InputLayer(input_shape=(None, 526, 526, 100), batch_size=self.batch_size)
-        self.conv_layer1 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu', input_shape=(526,526,100), name='input_layer')
+        self.conv_layer1 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu', input_shape=(args.fidelity,args.fidelity,100), name='input_layer')
         self.conv_layer2 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer3 = Conv2D(32, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer4 = Conv2D(64, kernel_size=3, strides=(1,1), padding='same', activation='relu')
@@ -29,7 +28,13 @@ class CNN(tf.keras.Model):
         self.conv_layer6 = Conv2D(8, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer7 = Conv2D(4, kernel_size=3, strides=(1,1), padding='same', activation='relu')
         self.conv_layer8 = Conv2D(1, kernel_size=3, strides=(1,1), padding='same', activation='relu')
+        self.flatten_layer1 = Flatten()
+        # self.dense_1 = Dense(self.input_size)
+        # self.dense_2 = Dense(self.input_size)
+        # self.out_image_flat = Dense(self.input_size, activation='softmax')
+        # self.reshape = Reshape((self.args.fidelity, self.args.fidelity))
         
+
         self.net = Sequential([
             self.conv_layer1,
             self.conv_layer2,
@@ -38,33 +43,42 @@ class CNN(tf.keras.Model):
             self.conv_layer5,
             self.conv_layer6,
             self.conv_layer7,
-            self.conv_layer8
+            self.conv_layer8,
+            self.flatten_layer1
+            # self.dense_1,
+            # self.dense_2,
+            # self.out_image_flat
+            # self.reshape
         ])
 
-        self.dense_1 = Dense(526*526)
     
     def call(self, inputs):
         # inputs is a [batch_size, image_width, image_height, num_time_steps] tensor
 
-        # conv1_out = self.conv_layer1(inputs)
-        # conv2_out = self.conv_layer2(conv1_out)
-        # conv3_out = self.conv_layer3(conv2_out)
-        # conv4_out = self.conv_layer4(conv3_out)
-        # conv5_out = self.conv_layer5(conv4_out)
         out = self.net(inputs)
         
-        # f, axs = plt.subplots(2,4)
-        # axs = np.reshape(axs, (8,))
-        # for i in range(8):
-        #     axs[i].imshow(conv4_out[0,:,:,i])
-        # #plt.imshow(conv4_out[0,:,:,0])
-        # plt.show()
-        return out
+        return tf.cast(out, tf.double)
 
     def loss(self, predictions, labels):
-        diff = predictions - labels  # elementwise for numpy arrays
-        m_norm = tf.reduce_sum(abs(diff), axis=None)
-        return m_norm / self.batch_size
+
+        cosine_loss = tf.keras.losses.cosine_similarity(labels, predictions, axis=1)
+        cosine_loss = tf.reduce_sum(cosine_loss)
+
+        # predictions_indices = np.where(predictions > 0, np.ones(predictions.shape), np.zeros(predictions.shape))
+        # image_nums = np.expand_dims(predictions_indices[0], axis=1)
+        # indices = np.expand_dims(predictions_indices[1], axis=1)
+        # predictions_indices = np.hstack((image_nums, indices))
+        
+        # labels_indices = np.where(labels > 0, np.ones(labels.shape), np.zeros(labels.shape))
+        # image_nums = np.expand_dims(labels_indices[0], axis=1)
+        # indices = np.expand_dims(labels_indices[1], axis=1)
+        # labels_indices = np.hstack((image_nums, indices))
+
+        # loss = tf.keras.losses.cosine_similarity(labels_indices, predictions_indices)
+        # loss = sum(loss)
+
+        return cosine_loss
+
 
 
 def generate_data(args, folder="training_data"):
@@ -128,8 +142,8 @@ def load_weights(model):
     Returns:
     - model: Trained model.
     """
-    inputs = tf.zeros([1,526,526,100])  # Random data sample
-    labels = tf.constant([[1,526,526,1]])
+    inputs = tf.zeros([1,model.args.fidelity,model.args.fidelity,100])  # Random data sample
+    labels = tf.constant([[1,model.args.fidelity,model.args.fidelity,1]])
     
     weights_path = os.path.join("model_ckpts", "CNN", "CNN")
     _ = model(inputs)
@@ -150,19 +164,28 @@ def train(model, training_data):
     # want labels to be the image at the final time step for all time sequences
 
     
-    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)   
     for batch_start in range(0, training_data.shape[0], model.batch_size):
         images = training_data[batch_start:batch_start + model.batch_size, :, :, :-1]
         labels = training_data[batch_start:batch_start + model.batch_size, :, :, -1:]
+        
+        labels = np.reshape(labels, (labels.shape[0], -1))
+
+        labels = tf.where(labels == 0, np.ones(labels.shape) * 0.01, labels)
+
+        images = tf.cast(images, tf.double)
+        labels = tf.cast(labels, tf.double)
+
         print("Training batch starting at " + str(batch_start))
+        
         with tf.GradientTape() as tape:
             predictions = model.call(images)
-            loss = model.loss(predictions, labels)
-            model.loss_list.append(loss.numpy())
-            print("Batch loss: " + str(loss.numpy()))
+            batch_loss = model.loss(predictions, labels)
+            model.loss_list.append(batch_loss.numpy())
+            print("Batch loss: " + str(batch_loss.numpy() / model.batch_size))
 
-        gradients = tape.gradient(loss, model.trainable_variables)
-        model.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        gradients = tape.gradient(batch_loss, model.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
     return model.loss_list
 
@@ -184,7 +207,7 @@ def show_animation(data):
     grid = plt.GridSpec(3, 1, wspace=0.0, hspace=0.3)
     ax1 = plt.subplot(grid[0:2, 0])
     for i in range(data.shape[-1]):
-        image = data[0,:,:,i]
+        image = data[4,:,:,i]
         plt.sca(ax1)
         plt.cla()
         plt.imshow(image)#, cmap='Greys')
@@ -199,16 +222,29 @@ def test(model, args):
     x_test = testing_data[:,:,:,:-1]
     y_test = testing_data[:,:,:,-1:]
 
-    prediction = model.call(x_test)
 
-    visualize_intermediate_output(model, x_test, 'conv2d_7')
+    for n in range(50):
+        predictions = model.call(x_test)
+
+        preds = np.reshape(predictions, (predictions.shape[0], args.fidelity, args.fidelity, 1))
+        
+        x_test = tf.concat((x_test[:,:,:,1:], preds), axis=3)
+
+    show_animation(x_test)
+
+    # visualize_intermediate_output(model, x_test, 'conv2d_7')
     
-    # f, (ax1, ax2) = plt.subplots(1,2)
-    # ax1.imshow(prediction[0,:,:,0])
-    # ax2.imshow(y_test[0,:,:,0])
+    
+    # for i in range(len(x_test)):
+    #     f, (ax1, ax2) = plt.subplots(1,2)
+    #     ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
+    #     ax2.imshow(y_test[i,:,:,0])
+    #     ax1.set_title("Prediction")
+    #     ax2.set_title("Actual")
 
-    # plt.show()
-    return prediction, y_test
+    #     plt.show()
+
+    return predictions, y_test
 
 
 def parseArguments():
@@ -220,19 +256,19 @@ def parseArguments():
     group.add_argument("--load_weights", action="store_true")
 
     parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--num_epochs", type=int, default=10) # implement
+    parser.add_argument("--num_epochs", type=int, default=5) # implement
     
     
     parser.add_argument("--num_objects", type=int, default=3)
     parser.add_argument("--start_time", type=int, default=0)
     parser.add_argument("--stop_time", type=float, default=1.0)
     parser.add_argument("--time_step_size", type=float, default=0.01)
-    parser.add_argument("--fidelity", type=int, default=512)
+    parser.add_argument("--fidelity", type=int, default=128)
     
     
 
     # parser.add_argument("--time_steps", type=int, default=99)
-    parser.add_argument("--input_size", type=int, default=28*28)
+    parser.add_argument("--input_size", type=int, default=128*128)
     
     args = parser.parse_args()
     return args
@@ -243,7 +279,7 @@ def main(args):
         training_data = load_data("training_data", args)
 
         model = CNN(args, 0)
-        for epoch in range(5):
+        for epoch in range(args.num_epochs):
             print("Training epoch", epoch)
             
             loss = train(model, training_data)
@@ -253,7 +289,7 @@ def main(args):
     
     elif args.load_weights:
         # inputs is [batch_size, image_width, image_height, num_time_steps]
-        inputs = tf.zeros([1,526,526,100])  # Random data sample
+        inputs = tf.zeros([1,args.fidelity,args.fidelity,100])  # Random data sample
     
         model = CNN(args, 0)
         model = load_weights(model)
