@@ -1,15 +1,20 @@
+from numpy.lib.type_check import nan_to_num
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, InputLayer, Flatten, BatchNormalization, Reshape
+from tensorflow.keras.layers import Conv2D, Flatten, BatchNormalization, Reshape, Conv3D
 from tensorflow.keras import Sequential
 from image_generator import run_simulation, pos_to_numpy
 import matplotlib.pyplot as plt
 import os
 import argparse
+from contextlib import redirect_stdout
+from datetime import datetime
 
-class CNN(tf.keras.Model):
+
+model_name = "CNN8"
+class CNN8(tf.keras.Model):
     def __init__(self, args):
-        super(CNN, self).__init__()
+        super(CNN8, self).__init__()
         self.input_size = args.fidelity * args.fidelity
         self.batch_size = args.batch_size
         self.loss_list = []
@@ -39,6 +44,7 @@ class CNN(tf.keras.Model):
             self.flatten_layer1
         ])
 
+
     
     def call(self, inputs):
         # inputs is a [batch_size, image_width, image_height, num_time_steps] tensor
@@ -52,11 +58,7 @@ class CNN(tf.keras.Model):
         cosine_loss = tf.keras.losses.cosine_similarity(labels, predictions, axis=1)
         cosine_loss = tf.reduce_sum(cosine_loss)
 
-        
-
         return cosine_loss
-
-
 
 def generate_data(args, folder="training_data"):
     # remove all data files
@@ -65,7 +67,7 @@ def generate_data(args, folder="training_data"):
         os.remove(os.path.join(folder, f))
 
     for sim in range(num_simulations):
-        path = "training_data/positions_simulation_" + str(sim) + ".txt"
+        path = folder + "/positions_simulation_" + str(sim) + ".txt"
         # positions is [num_objects, num_dimensions (2), num_time_steps]
         images = run_simulation(args, False, (True, path))
         # images = np.expand_dims(images, axis=0)
@@ -100,7 +102,7 @@ def save_model_weights(model, args):
         - model: Trained CNN model.
         - args: All arguments.
         """
-        model_flag = "CNN"
+        model_flag = model_name
         output_dir = os.path.join("model_ckpts", model_flag)
         output_path = os.path.join(output_dir, model_flag)
         os.makedirs("model_ckpts", exist_ok=True)
@@ -119,7 +121,7 @@ def load_weights(model):
     """
     inputs = tf.zeros([1,model.args.fidelity,model.args.fidelity,model.num_time_steps])  # Random data sample
     
-    weights_path = os.path.join("model_ckpts", "CNN", "CNN")
+    weights_path = os.path.join("model_ckpts", model_name, model_name)
     _ = model(inputs)
     model.load_weights(weights_path)
     return model
@@ -127,11 +129,17 @@ def load_weights(model):
 def train(model, training_data):
     # training data shape is [num_image_sequences, image_width, image_height, num_time_steps]
     
-    # want labels to be the image at the final time step for all time sequences
+    
 
+    # randomly shuffle the inputs
+    indices = np.arange(len(training_data))
+    np.random.shuffle(indices)
+    training_data = tf.gather(training_data, indices)
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=model.args.learning_rate)   
     for batch_start in range(0, training_data.shape[0], model.batch_size):
+
+        # want labels to be the image at the final time step for all time sequences
         images = training_data[batch_start:batch_start + model.batch_size, :, :, :-1]
         labels = training_data[batch_start:batch_start + model.batch_size, :, :, -1:]
         
@@ -148,11 +156,13 @@ def train(model, training_data):
             predictions = model.call(images)
             batch_loss = model.loss(predictions, labels)
             model.loss_list.append(batch_loss.numpy())
-            print("Batch loss: " + str(batch_loss.numpy() / model.batch_size))
+            print("Batch loss per example: " + str(batch_loss.numpy() / model.batch_size))
 
         gradients = tape.gradient(batch_loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
+        
+    save_model_weights(model, model.args)
+    
     return model.loss_list
 
 def visualize_intermediate_output(model, x_test, layer_name):
@@ -182,6 +192,13 @@ def show_animation(data, simulation_num):
         ax1.set_aspect('equal', 'box')
         plt.pause(0.001)
 
+def similarity(prediction, label):
+    prediction = prediction.flatten()
+    label = label.flatten()
+
+    similarity = tf.keras.losses.cosine_similarity(label, prediction)
+
+    return similarity
 
 def test(model, args):
     testing_data = load_data("testing_data", args)
@@ -195,6 +212,8 @@ def test(model, args):
     """
     Uncomment the following section to see animation
     """
+    # x_test = x_test[:10]
+    # y_test = y_test[:10]
     # for n in range(50):
     #     predictions = model.call(x_test)
 
@@ -215,16 +234,55 @@ def test(model, args):
     Uncomment the following section to see predictions vs. labels for all files 
     in ./testing data
     """
+    
+    filename = "performance_model_" + model_name[-1] + ".txt"
+
     predictions = model.call(x_test)
+
+    with open(filename, 'w+') as f:
+        with redirect_stdout(f):
+            model.net.summary()
+
+        f.write("Training examples: 1000" + "\n")
+        f.write("Batch size: " + str(args.batch_size) + "\n")
+        f.write("Epochs: " + str(args.num_epochs) + "\n")
+        f.write("Learning rate: " + str(args.learning_rate) + "\n")     
+    
+    similarities = np.zeros(len(x_test))
+    diffs = np.zeros(len(x_test))
     for i in range(len(x_test)):
-        f, (ax1, ax2) = plt.subplots(1,2)
-        ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
-        ax2.imshow(y_test[i,:,:,0])
-        ax1.set_title("Prediction")
-        ax2.set_title("Actual")
+        
+        prediction = np.reshape(predictions[i], (args.fidelity, args.fidelity))
+        label = y_test[i,:,:,0]
+        
+        if not np.all(prediction == 0):
+            prediction = prediction * (1/np.max(prediction))
+        if not np.all(label == 0):
+            label = label * (1/np.max(label))
+        diff = np.abs(prediction - label)
+        diffs[i] = np.sum(diff)
+        similarities[i] = similarity(prediction, label)
+        print("Similarity: " + str(similarities[i]))
 
-        plt.show()
+        if i < 10:
+            # f, (ax1, ax2, ax3) = plt.subplots(1,3)
+            f, (ax1, ax2) = plt.subplots(1,2)
+            ax1.imshow(prediction)
+            ax2.imshow(label)
+            # ax3.imshow(diff)
+            ax1.set_title("Prediction")
+            ax2.set_title("Actual")
+            # ax3.set_title("Difference")
 
+            plt.show()
+
+    with open(filename, 'a') as f:
+        f.write("Average accuracy over 100 testing sequences: " + str(np.average(similarities)) + "\n")
+        f.write("Average difference over 100 testing sequences: " + str(np.average(diffs)))
+    
+
+    print("Average accuracy over 100 testing sequences: " + str(np.average(similarities)))
+    print("Average difference over 100 testing sequences: " + str(np.average(diffs)))
     return predictions, y_test
 
 
@@ -239,8 +297,8 @@ def parseArguments():
     
     # if it should train on the data in ./training_data
     group.add_argument("--load_data", action="store_true")
-    parser.add_argument("--batch_size", type=int, default=10)
-    parser.add_argument("--num_epochs", type=int, default=5)
+    parser.add_argument("--batch_size", type=int, default=100)
+    parser.add_argument("--num_epochs", type=int, default=3)
     parser.add_argument("--learning_rate", type=float, default=0.001) 
 
     # if it should load the saved weights and test with files in ./testing_data
@@ -261,29 +319,32 @@ def main(args):
     # if program called with --load_data flag
     if args.load_data:
         training_data = load_data("training_data", args)
-
-        model = CNN(args)
+    
+        model = CNN8(args)
+        start_time = datetime.now()
         for epoch in range(args.num_epochs):
             print("Training epoch", epoch)
             
             loss = train(model, training_data)
         
         save_model_weights(model, args)
+        end_time = datetime.now()
         print(model.loss_list)
+        print('Trained in: {}'.format(end_time - start_time))
     
     # if program called with --load_weights flag
     elif args.load_weights:
         # inputs is [batch_size, image_width, image_height, num_time_steps]
         inputs = tf.zeros([1, args.fidelity, args.fidelity, int((args.stop_time - args.start_time) / args.time_step_size)])  # Random data sample
     
-        model = CNN(args)
+        model = CNN8(args)
         model = load_weights(model)
         out = test(model, args)
         return out
 
     # if program called with --generate_data [num] argument
     elif args.generate_data != None:
-        generate_data(args)
+        generate_data(args, "training_data")
         return 0
 
     else:

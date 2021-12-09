@@ -8,7 +8,6 @@ Arguments:
         "--batch_size", type=int, default=128
         "--num_epochs", type=int, default=10
         "--time_steps", type=int, default=99
-        "--input_size", type=int, default=28*28
         "--fidelity", type=int, default=512
 
 
@@ -24,6 +23,6 @@ To generate data:
 Once there are data files in "training_data", to load that data and use it to train the model:
     "python model.py --load_data" and then any of the other arguments you want (not all implemented yet)
 
-    Batch loss closer to -1 is better
+    Batch loss closer to -1 is better.
 
     SAVED WEIGHTS ARE OVERRIDDEN AFTER ALL TRAININGS! MAKE A COPY ELSEWHERE IF YOU WANT TO KEEP A TRAINED MODEL!
