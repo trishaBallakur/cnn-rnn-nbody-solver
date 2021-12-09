@@ -1,0 +1,23 @@
+Architecture ideas:
+
+End-to-End CNN
+    Input:
+        - a fixed number of images (100)
+    Output:
+        - the next frame after the images
+    Architecture:
+        - a series of 2d conv, followed by linear layers?
+        - a series of 3d conv, followed by linear layers?
+        - add a descriminator to make the results look more realistic?
+        - should the CNN compress the images to something smaller that a single image size? (encoding?)
+
+- CNN Encoder -> LSTM -> Decoder?
+    Input:
+        - a series of single-images
+    Output:
+        - a series of single-images
+    Architecture:
+        - what are the differences between this as a convolutional LSTM?
+        - train the encoder/first on single images
+
+

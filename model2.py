@@ -1,16 +1,18 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.layers import Dense, Conv2D, MaxPool2D, InputLayer, Flatten, BatchNormalization, Reshape
+from tensorflow.keras.layers import *
 from tensorflow.keras import Sequential
 from image_generator import run_simulation, pos_to_numpy
 import matplotlib.pyplot as plt
 import os
 import argparse
 
-
 class CNN(tf.keras.Model):
     def __init__(self, args):
         super(CNN, self).__init__()
+
+        self.cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+
         self.input_size = args.fidelity * args.fidelity
         self.batch_size = args.batch_size
         self.loss_list = []
@@ -41,12 +43,36 @@ class CNN(tf.keras.Model):
             self.flatten_layer1
         ])
 
+        # create discriminator
+        self.discriminator = tf.keras.Sequential()
+
+        # CNN layer 1
+        self.discriminator.add(Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[28, 28, 1]))
+        self.discriminator.add(LeakyReLU())
+        self.discriminator.add(Dropout(0.3))
+
+        # CNN layer 2
+        self.discriminator.add(Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
+        self.discriminator.add(LeakyReLU())
+        self.discriminator.add(Dropout(0.3))
+
+        # final linear layer of discriminator
+        self.discriminator.add(Flatten())
+        self.discriminator.add(Dense(1))
+
     def call(self, inputs):
         # inputs is a [batch_size, image_width, image_height, num_time_steps] tensor
-
         out = self.net(inputs)
-
         return tf.cast(out, tf.double)
+
+    def discriminator_loss(self, real_output, fake_output):
+        real_loss = self.cross_entropy(tf.ones_like(real_output), real_output)
+        fake_loss = self.cross_entropy(tf.zeros_like(fake_output), fake_output)
+        total_loss = real_loss + fake_loss
+        return total_loss
+
+    def generator_loss(self, fake_output):
+        return self.cross_entropy(tf.ones_like(fake_output), fake_output)
 
     def loss(self, predictions, labels):
         cosine_loss = tf.keras.losses.cosine_similarity(labels, predictions, axis=1)

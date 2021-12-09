@@ -33,7 +33,6 @@ def position_screen(screen_size):
     return screen
 
 
-
 def pos_to_numpy(positions, fidelity, screen=None):
     """
 
@@ -70,11 +69,10 @@ def pos_to_numpy(positions, fidelity, screen=None):
         First line doesn't account for padding, second line should
         """
         # image[(x_idx - half_size):(x_idx + half_size + 1), (y_idx - half_size):(y_idx + half_size + 1)] = screen
-        
+
         image_dim = image.shape[0]
         max_image_idx = image_dim - 1
         screen_dim = screen.shape[0]
-
 
         # if only right edge is in view
         if max_x_idx >= 0 and min_x_idx < 0:
@@ -85,14 +83,13 @@ def pos_to_numpy(positions, fidelity, screen=None):
         elif max_x_idx > max_image_idx and min_x_idx <= max_image_idx:
             lower_x_bound = min_x_idx
             upper_x_bound = max_image_idx + 1
-        
+
         else:
             lower_x_bound = min_x_idx
             upper_x_bound = max_x_idx + 1
 
-        
         # if only bottom edge is in view
-        if max_y_idx >= 0 and min_y_idx < 0: 
+        if max_y_idx >= 0 and min_y_idx < 0:
             lower_y_bound = 0
             upper_y_bound = max_y_idx + 1
 
@@ -106,55 +103,52 @@ def pos_to_numpy(positions, fidelity, screen=None):
             upper_y_bound = max_y_idx + 1
 
         # still some issues here
-        if not (upper_y_bound < 1 or lower_y_bound > max_image_idx or upper_x_bound < 1 or lower_x_bound > max_image_idx): 
-            image[lower_x_bound:upper_x_bound, lower_y_bound:upper_y_bound] = screen[screen_dim - (upper_x_bound-lower_x_bound):, screen_dim - (upper_y_bound-lower_y_bound):]
+        if not (
+                upper_y_bound < 1 or lower_y_bound > max_image_idx or upper_x_bound < 1 or lower_x_bound > max_image_idx):
+            image[lower_x_bound:upper_x_bound, lower_y_bound:upper_y_bound] = screen[screen_dim - (
+                        upper_x_bound - lower_x_bound):, screen_dim - (upper_y_bound - lower_y_bound):]
 
     return image
 
 
-
 def write_pos_to_file(pos_save, N, filename):
-    
     # erase file
-    data_file = open(filename, "w+")    
+    data_file = open(filename, "w+")
     data_file.close()
 
     # open file to write
     data_file = open(filename, "a+")
-    
+
     # for each timestep
     for t in range(pos_save.shape[-1]):
         # for each object
-        for n in range(N-1):
+        for n in range(N - 1):
             # for each of the 2 dimensions
             for x in range(pos_save.shape[1]):
                 # write the coordinate followed by a space
-                data_file.write(str(pos_save[n,x,t]) + " ")
+                data_file.write(str(pos_save[n, x, t]) + " ")
             # in between each object put a comma
             data_file.write(", ")
         # write the coords of the last object followed by a new line
         for x in range(pos_save.shape[1]):
-            data_file.write(str(pos_save[-1,x,t]) + " ")
+            data_file.write(str(pos_save[-1, x, t]) + " ")
         data_file.write('\n')
         # close the file
     data_file.close()
 
+
 def write_images_to_file(images, filename):
-    data_file = open(filename, "w+")    
+    data_file = open(filename, "w+")
     data_file.close()
     data_file = open(filename, "a+")
 
     for i in range(images.shape[0]):
         flattened_image = images[i].flatten()
         # np.reshape(images[i], (images[i][0], -1))
-        
+
         data_file.write(str(flattened_image.tolist()) + "\n")
 
-
     data_file.close()
-
-
-
 
 
 def run_simulation(args, show_plot=False, save_data=(False, "")):
@@ -178,10 +172,10 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
 
     mass = 3.0 * np.ones((N, 1)) / N  # total mass of particles is 3
     pos = np.random.rand(N, 3)
-    pos[:,2] = 0
+    pos[:, 2] = 0
     # pos = np.random.randn(N, 3)  # randomly selected positions and velocities
     vel = np.random.randn(N, 3)
-    vel[:,2] = 0
+    vel[:, 2] = 0
 
     # Convert to Center-of-Mass frame
     vel -= np.mean(mass * vel, 0) / np.mean(mass)
@@ -212,7 +206,6 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
         ax1 = plt.subplot(grid[0:2, 0])
         ax2 = plt.subplot(grid[2, 0])
 
-    
     # # erase data
     # if save_data:
     #     data_file = open(file_path, "w+")    
@@ -220,9 +213,9 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
 
     # Simulation Main Loop
     for i in range(Nt):
-        
+
         # if save_data:
-            # write_pos_to_file(pos, N, file_path)
+        # write_pos_to_file(pos, N, file_path)
 
         # (1/2) kick
         vel += acc * dt / 2.0
@@ -247,7 +240,6 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
         KE_save[i + 1] = KE
         PE_save[i + 1] = PE
 
-        
         # plot in real time
         if plotRealTime or (i == Nt - 1):
             if show_plot:
@@ -258,16 +250,16 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
             # plt.scatter(xx, yy, s=1, color=[.7, .7, 1])
 
             # discard z position
-            image = pos_to_numpy(pos[:,:2], fidelity)
+            image = pos_to_numpy(pos[:, :2], fidelity)
             images.append(image.tolist())
-            
+
             if show_plot:
-                plt.imshow(image)#, cmap='Greys')
+                plt.imshow(image)  # , cmap='Greys')
                 # plt.scatter(pos[:, 0], pos[:, 1], s=10, color='blue')
-                #ax1.set(xlim=(0, len(image)), ylim=(len(image), 0))
+                # ax1.set(xlim=(0, len(image)), ylim=(len(image), 0))
                 ax1.set_aspect('equal', 'box')
-                ax1.set_xticks(np.arange(0, len(image), (len(image) - len(image)%10)//5))
-                ax1.set_yticks(np.arange(0, len(image), (len(image) - len(image)%10)//5))
+                ax1.set_xticks(np.arange(0, len(image), (len(image) - len(image) % 10) // 5))
+                ax1.set_yticks(np.arange(0, len(image), (len(image) - len(image) % 10) // 5))
 
                 plt.sca(ax2)
                 plt.cla()
@@ -278,10 +270,8 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
                 ax2.set_aspect(0.007)
 
                 plt.pause(0.001)
-    
 
     if show_plot:
-
         # add labels/legend
         plt.sca(ax2)
         plt.xlabel('time')
@@ -295,7 +285,7 @@ def run_simulation(args, show_plot=False, save_data=(False, "")):
     images = np.array(images)
 
     if save_data:
-        write_pos_to_file(pos_save[:,:2,:], N, file_path)
+        write_pos_to_file(pos_save[:, :2, :], N, file_path)
     #     write_images_to_file(images, file_path)
 
     return images
