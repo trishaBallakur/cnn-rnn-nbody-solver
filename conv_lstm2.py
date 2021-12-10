@@ -12,14 +12,18 @@ class ConvLSTM_Model(tf.keras.Model):
     def __init__(self, args, **kwargs):
         super(ConvLSTM_Model, self).__init__()
 
+        self.input_size = args.fidelity * args.fidelity
+        self.batch_size = args.batch_size
         self.loss_list = []
         self.num_time_steps = int((args.stop_time - args.start_time) / args.time_step_size)
+        self.resolution = args.fidelity
+        self.args = args
 
         # self.model = Sequential()
-        self.l1 = InputLayer(input_shape=(20, 64, 64, 1))
+        self.l1 = InputLayer(input_shape=(self.num_time_steps, args.fidelity, args.fidelity, 1))
         self.l2 = ConvLSTM2D(filters=8, kernel_size=(5, 5), padding='same', return_sequences=True, activation='relu')
         self.l3 = BatchNormalization()
-        self.l4 = ConvLSTM2D(filters=8, kernel_size=(5, 5), padding='same', return_sequences=True, activation='relu')
+        self.l4 = ConvLSTM2D(filters=16, kernel_size=(5, 5), padding='same', return_sequences=True, activation='relu')
         self.l5 = BatchNormalization()
         self.l6 = Conv3D(filters=1, kernel_size=(3, 3, 3), activation='sigmoid', padding='same')
 
@@ -29,11 +33,11 @@ class ConvLSTM_Model(tf.keras.Model):
         l1_out = self.l1(inputs)
         l2_out = self.l2(l1_out)
         l3_out = self.l3(l2_out)
-        l4_out = self.l4(l3_out)
-        l5_out = self.l5(l4_out)
-        l6_out = self.l6(l5_out)
+        # l4_out = self.l4(l3_out)
+        # l5_out = self.l5(l4_out)
+        # l6_out = self.l6(l5_out)
 
-        return tf.cast(l6_out, tf.double)
+        return tf.cast(l3_out, tf.double)
 
     def loss(self, predictions, labels):
         square_difference = tf.math.pow(predictions - labels, 2)
@@ -72,10 +76,9 @@ def load_data(folder, args):
         print("Loaded data from file: " + str(num_files) + " / " + str(total_num_files))
 
     data = np.array(data)
-    data = tf.reshape(data, (-1, 128, 128, 1))
-    data = tf.image.resize(data, [64, 64])
-    data = tf.reshape(data, (-1, 101, 64, 64, 1))
+    data = np.reshape(data, (1000, 101, 128, 128, 1))
     print("Data loaded. Data of shape: " + str(data.shape))
+
     return data
 
 
@@ -105,7 +108,7 @@ def load_weights(model):
     Returns:
     - model: Trained model.
     """
-    inputs = tf.zeros([10, 101, 64, 64, 1])  # Random data sample
+    inputs = tf.zeros([1, model.args.fidelity, model.args.fidelity, model.num_time_steps])  # Random data sample
 
     weights_path = os.path.join("model_ckpts", "CNN_LSTM", "CNN_LSTM")
     _ = model(inputs)
@@ -118,12 +121,10 @@ def train(model, training_data):
 
     # want labels to be the image at the final time step for all time sequences
 
-    optimizer = tf.keras.optimizers.Adam()
-    for batch_start in range(0, training_data.shape[0], 20):
-        images = training_data[batch_start:batch_start + 20, :-1, :, :]
-        labels = training_data[batch_start:batch_start + 20, 1:, :, :]
-        images = tf.reshape(images, (200, 10, 64, 64, 1))
-        labels = tf.reshape(labels, (200, 10, 64, 64, 1))
+    optimizer = tf.keras.optimizers.Adam(learning_rate=model.args.learning_rate)
+    for batch_start in range(0, training_data.shape[0], model.batch_size):
+        images = training_data[batch_start:batch_start + model.batch_size, :-1, :, :]
+        labels = training_data[batch_start:batch_start + model.batch_size, 1:, :, :]
 
         # labels = tf.where(labels == 0, np.ones(labels.shape) * 0.01, labels)
 
@@ -136,7 +137,7 @@ def train(model, training_data):
             predictions = model.call(images)
             batch_loss = model.loss(predictions, labels)
             model.loss_list.append(batch_loss.numpy())
-            print("Batch loss: " + str(batch_loss.numpy() / 20))
+            print("Batch loss: " + str(batch_loss.numpy() / model.batch_size))
 
         gradients = tape.gradient(batch_loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -162,12 +163,10 @@ def show_animation(data, simulation_num):
     fig = plt.figure(figsize=(4, 5), dpi=80)
     grid = plt.GridSpec(3, 1, wspace=0.0, hspace=0.3)
     ax1 = plt.subplot(grid[0:2, 0])
-    for i in range(data.shape[1]):
-        print("frame " + str(i))
-        image = data[simulation_num, i, :, :, :]
-        image = tf.reshape(image, (64, 64))
-        # plt.sca(ax1)
-        # plt.cla()
+    for i in range(data.shape[-1]):
+        image = data[simulation_num, :, :, i]
+        plt.sca(ax1)
+        plt.cla()
         plt.imshow(image)  # , cmap='Greys')
         # plt.scatter(pos[:, 0], pos[:, 1], s=10, color='blue')
         # ax1.set(xlim=(0, len(image)), ylim=(len(image), 0))
@@ -178,7 +177,7 @@ def show_animation(data, simulation_num):
 def test(model, args):
     testing_data = load_data("testing_data", args)
     # inputs are images at all timesteps except last
-    x_test = testing_data[0:1, 0:20, :, :, :]
+    x_test = testing_data[:, :, :, :-1]
     # labels are image at last timestep
     y_test = testing_data[:, :, :, -1:]
 
@@ -187,19 +186,16 @@ def test(model, args):
     """
     Uncomment the following section to see animation
     """
-    for n in range(50):
-        predictions = model.call(x_test)
-        for i in range(predictions.shape[1]):
-            print(i)
-            print(predictions[0, i, 0, 0, 0])
+    # for n in range(50):
+    #     predictions = model.call(x_test)
 
-        preds = predictions[0:1, -2:-1, :, :, :]
+    #     preds = np.reshape(predictions, (predictions.shape[0], args.fidelity, args.fidelity, 1))
 
-        x_test = tf.concat((tf.cast(x_test, tf.float32), tf.cast(preds, tf.float32)), axis=1)
+    #     x_test = tf.concat((x_test[:,:,:,1:], preds), axis=3)
 
-    # parameters are data, which simulation in the data you want to animate
-    # could also add a breakpoint here and type in the debug console
-    show_animation(x_test, 0)
+    # # parameters are data, which simulation in the data you want to animate
+    # # could also add a breakpoint here and type in the debug console
+    # show_animation(x_test, 0)
 
     """
     Uncomment the following section to see outputs of specific layers
@@ -210,15 +206,15 @@ def test(model, args):
     Uncomment the following section to see predictions vs. labels for all files 
     in ./testing data
     """
-    # predictions = model.call(x_test)
-    # for i in range(len(x_test)):
-    #     f, (ax1, ax2) = plt.subplots(1, 2)
-    #     ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
-    #     ax2.imshow(y_test[i, :, :, 0])
-    #     ax1.set_title("Prediction")
-    #     ax2.set_title("Actual")
-    #
-    #     plt.show()
+    predictions = model.call(x_test)
+    for i in range(len(x_test)):
+        f, (ax1, ax2) = plt.subplots(1, 2)
+        ax1.imshow(np.reshape(predictions[i], (args.fidelity, args.fidelity)))
+        ax2.imshow(y_test[i, :, :, 0])
+        ax1.set_title("Prediction")
+        ax2.set_title("Actual")
+
+        plt.show()
 
     return predictions, y_test
 
@@ -258,10 +254,8 @@ def main(args):
         training_data = load_data("training_data", args)
 
         model = ConvLSTM_Model(args)
-
-        model = load_weights(model)
-       # model.model.summary()
-        for epoch in range(1):
+        # model.model.summary()
+        for epoch in range(args.num_epochs):
             print("Training epoch", epoch)
 
             loss = train(model, training_data)
